@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ScreenSaver</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="1920" height="1080"></canvas>
+    <div id="controls">
+        <label for="speed-slider">Speed:</label>
+        <input type="range" id="speed-slider" min="1" max="4" step="1" value="1">
+        <br>
+        <label for="zoom-slider">Zoom:</label>
+        <input type="range" id="zoom-slider" min="0.5" max="4" step="0.1" value="1">
+        <br>
+        <label for="rotation-slider">Camera Rotation Z:</label>
+          <input type="range" id="rotation-slider" min="0" max="360" value="0" step="1">
+          <br>
+          <label for="shiny-slider">Shiny Slider:</label>
+        <input type="range" id="shiny-slider" min="0.1" max="15" value="5" step="0.1">
+        <br>
+    </div>
+    <script src="gl-matrix.js"></script>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+
+        // Check if WebGL is available
+        if (!gl) {
+            alert('WebGL is not supported by your browser.');
+        }
+
+        // Vertex shader
+        const vertexShaderSource = `
+            attribute vec3 a_position;
+            attribute vec3 a_normal;
+
+            uniform mat4 u_modelViewMatrix;
+            uniform mat4 u_projectionMatrix;
+
+            varying vec3 v_normal;
+
+            void main() {
+                gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(a_position, 1.0);
+                v_normal = a_normal;
+            }
+        `;
+
+        // Fragment shader
+        const fragmentShaderSource = `
+            precision mediump float;
+            varying vec3 v_normal;
+            uniform vec3 lightDirection;
+            uniform vec3 ambientColor;
+            uniform vec3 diffuseColor;
+            uniform vec3 specularColor;
+            uniform float shininess;
+
+            void main() {
+                // Diffuse Intensity
+                vec3 normal = normalize(v_normal);
+                float diffuseIntensity = max(dot(normal, -lightDirection), 0.0);
+
+                // Specular Intensity
+                vec3 viewDirection = normalize(-gl_FragCoord.xyz);
+                vec3 reflectDirection = reflect(lightDirection, normal);
+                float specularIntensity = pow(max(dot(viewDirection, reflectDirection), 0.0), shininess);
+
+                // Calculate the final color
+                vec3 color = ambientColor + diffuseIntensity * diffuseColor + specularIntensity * specularColor;
+
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+        // Create shader program
+        function createShaderProgram(gl, vertexShaderSource, fragmentShaderSource) {
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('Shader program linking failed:', gl.getProgramInfoLog(program));
+            }
+
+            return program;
+        }
+
+        // Create shader
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compilation failed:', gl.getShaderInfoLog(shader));
+            }
+
+            return shader;
+        }
+
+        // Create a sphere geometry
+        function createSphere(radius, numVertices) {
+            const positions = [];
+            const normals = [];
+
+            for (let lat = 0; lat <= numVertices; lat++) {
+                const theta = (lat * Math.PI) / numVertices;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+
+                for (let lon = 0; lon <= numVertices; lon++) {
+                    const phi = (lon * 2 * Math.PI) / numVertices;
+                    const sinPhi = Math.sin(phi);
+                    const cosPhi = Math.cos(phi);
+
+                    const x = cosPhi * sinTheta;
+                    const y = cosTheta;
+                    const z = sinPhi * sinTheta;
+
+                    const normalX = x;
+                    const normalY = y;
+                    const normalZ = z;
+
+                    positions.push(radius * x, radius * y, radius * z);
+                    normals.push(normalX, normalY, normalZ);
+                }
+            }
+
+            return {
+                positions: positions,
+                normals: normals,
+            };
+        } 
+
+        // Create spheres with translation coordinates
+        const spheres = [
+            { translation: [0.0, 0.5, 0.0], rotationX: 0.01 ,rotationY: 0.01, rotationyy: 0, rotationxx : 0,color:[1, 0, 0, 1]},
+            { translation: [0.35, 0.35, 0.0],  rotationX: 0.01 ,rotationY: 0.01 ,rotationyy: 0, rotationxx : 0, color: [1, 0.5, 0, 1]},
+            { translation: [0.5, 0.0, 0.0], rotationX: 0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0, color: [1, 1, 0, 1] },
+            { translation: [0.35, -0.35, 0.0],rotationX: -0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0, color: [0, 1, 0, 1]  },
+            { translation: [0.0, -0.5, 0.0],rotationX: -0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0 , color: [0, 0, 1, 1]},
+            { translation: [-0.35, -0.35, 0.0],rotationX: -0.01 ,rotationY: -0.01 ,rotationyy: 0, rotationxx : 0, color: [0.5, 0, 1, 1] },
+            { translation: [-0.5, 0.0, 0.0],rotationX: 0.01 ,rotationY: -0.01,rotationyy: 0, rotationxx : 0, color: [0.5, 0, 0.5, 1] },
+            { translation: [-0.35, 0.35 , 0.0],rotationX: -0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0, color: [1, 1, 1, 1]  },
+        ];
+        // Duplicate spheres original coordinates;
+        const spheresDup = [
+            { translation: [0.0, 0.5, 0.0], rotationX: 0.01 ,rotationY: 0.01, rotationyy: 0, rotationxx : 0},
+            { translation: [0.35, 0.35, 0.0],  rotationX: 0.01 ,rotationY: 0.01 ,rotationyy: 0, rotationxx : 0},
+            { translation: [0.5, 0.0, 0.0], rotationX: 0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0 },
+            { translation: [0.35, -0.35, 0.0],rotationX: -0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0  },
+            { translation: [0.0, -0.5, 0.0],rotationX: -0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0  },
+            { translation: [-0.35, -0.35, 0.0],rotationX: -0.01 ,rotationY: -0.01 ,rotationyy: 0, rotationxx : 0 },
+            { translation: [-0.5, 0.0, 0.0],rotationX: 0.01 ,rotationY: -0.01,rotationyy: 0, rotationxx : 0  },
+            { translation: [-0.35, 0.35, 0.0],rotationX: -0.01 ,rotationY: 0.01,rotationyy: 0, rotationxx : 0  },
+        ];
+
+        // Initialize WebGL
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+        
+        // Create shader program
+        const program = createShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
+        gl.useProgram(program);
+        const lightDirectionLocation = gl.getUniformLocation(program, 'lightDirection');
+        const ambientColorLocation = gl.getUniformLocation(program, 'ambientColor');
+        const diffuseColorLocation = gl.getUniformLocation(program, 'diffuseColor');
+        const specularColorLocation = gl.getUniformLocation(program, 'specularColor');
+        const shininessLocation = gl.getUniformLocation(program, 'shininess');
+        // Create sphere geometry
+        const sphereGeometry = createSphere(0.1, 32);
+
+        // Create buffer for positions
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereGeometry.positions), gl.STATIC_DRAW);
+
+        // Assign position attribute
+        const positionAttributeLocation = gl.getAttribLocation(program, 'a_position');
+        gl.enableVertexAttribArray(positionAttributeLocation);
+        gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+
+        // Create buffer for normals
+        const normalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereGeometry.normals), gl.STATIC_DRAW);
+
+        // Assign normal attribute
+        const normalAttributeLocation = gl.getAttribLocation(program, 'a_normal');
+        gl.enableVertexAttribArray(normalAttributeLocation);
+        gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+       
+        // Set up projection matrix
+        const projectionMatrix = mat4.create();
+        mat4.perspective(projectionMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
+        const projectionMatrixLocation = gl.getUniformLocation(program, 'u_projectionMatrix');
+        gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+        // Slider elements
+         // Zoom slider element
+        const zoomSlider = document.getElementById('zoom-slider');
+        // Speed slider element
+        const speedSlider = document.getElementById('speed-slider');
+        // Rotation slider
+        const rotationSlider = document.getElementById('rotation-slider');
+        //shiny slider
+         const shinySlider = document.getElementById("shiny-slider");
+
+        let isDragging = false;
+        let previousMouseX = 0;
+        let previousMouseY = 0;
+        // Set rotations
+        let speed = 1;
+        let rotationZ = 0
+        let rotationZR = 0;
+        let rotation = 0;
+        let rotationxx = 0;
+        let rotationyy =0;
+        let rotation2 = 0;
+        let rotation3 = 0;
+        let x =0.01,y=0.01,z=0.01;
+
+        // Get the random animation once 15 seconds has passed
+        let randAnimNumber = 0;
+
+        // Set up lighting properties
+        const lightDirection = vec3.fromValues(0.5, 0.5, 1.0);
+        let ambientColor = getRandomColor();
+        const diffuseColor = vec3.fromValues(1, 1, 1);
+        const specularColor = vec3.fromValues(0.5, 0.5, 0.5);
+        let shininess = 1;
+         // Mouse drag event
+        function handleMouseDown(event) {
+            isDragging = true;
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+        }
+
+        // Function to handle mouse up event
+        function handleMouseUp() {
+            isDragging = false;
+        }
+
+        // Function to handle mouse move event
+        function handleMouseMove(event) {
+            if (!isDragging) {
+                return;
+            }
+
+            const deltaX = event.clientX - previousMouseX;
+            const deltaY = event.clientY - previousMouseY;
+            rotation2 += deltaX * 0.01;
+            rotation3 += deltaY *0.01;
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+        }
+        // Function to handle mouse click event
+        function handleMouseClick(event) {
+            randAnimNumber = Math.floor(Math.random() *3);
+            rotationxx = 0;
+            rotationyy = 0;
+        }
+        // Listeners
+        speedSlider.addEventListener('input', function(event){
+            speed = event.target.value;
+
+        })
+        canvas.addEventListener('mousedown', handleMouseDown);
+        canvas.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('mousemove', handleMouseMove);
+        // canvas.addEventListener('click', handleMouseClick);
+        rotationSlider.addEventListener('input', function(event) {
+          rotationZ = event.target.value;
+          // Convert rotationZ to radians
+          rotationZR = rotationZ * (Math.PI / 180);
+        shinySlider.addEventListener('input', function(event) {
+          shininess = event.target.value;
+          // Convert rotationZ to radians if necessary
+          
+          
+         
+          
+        });  
+         
+          
+        });
+        // Generates a random color
+        function getRandomColor() {
+            return [
+                Math.random(),
+                Math.random(),
+                Math.random()
+            ];
+        }
+        // Render function
+        function render() {
+           
+            let j =0;
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            if(rotationxx > 6.29*speed){
+                x = Math.floor(Math.random()* 3);
+                while(true){
+                    if(randAnimNumber == x){
+                        x = Math.floor(Math.random()* 3);
+                        continue;
+                    }
+                    randAnimNumber = x;
+                    break;
+                }
+                
+                rotationxx =0;
+                rotationyy = 0;
+            }
+            rotationxx +=0.01 * speed;
+            rotationyy += 0.01* speed;
+            // Model-view matrix
+            const modelViewMatrix = mat4.create();
+            mat4.rotateZ(modelViewMatrix, modelViewMatrix, rotationZR);
+            mat4.rotateY(modelViewMatrix, modelViewMatrix, rotation2);
+             mat4.rotateX(modelViewMatrix, modelViewMatrix, rotation3);
+            mat4.translate(modelViewMatrix, modelViewMatrix, [0.0, 0.0, -2]);
+   
+            if(randAnimNumber == 2){
+                    mat4.rotateZ(modelViewMatrix, modelViewMatrix, rotationxx);
+                    mat4.rotateX(modelViewMatrix, modelViewMatrix, rotationxx);
+            }
+           
+            if(ambientColor[0] >= 1){
+                x = -0.01;
+            }else if(ambientColor[0]<=0){
+                x = 0.01;
+            }
+            if(ambientColor[1] >= 1){
+                y = -0.001;
+            }else if(ambientColor[1]<=0){
+                y = 0.001;
+            }
+            if(ambientColor[2] >= 1){
+                z = -0.0001;
+            }else if(ambientColor[2]<=0){
+                z = 0.0001;
+            }
+            ambientColor[0] +=x;
+            ambientColor[1] +=y;
+            ambientColor[2] += z;
+
+            // Rotate spheres by Z
+            /*if(randAnimNumber == 0){
+                mat4.rotateZ(modelViewMatrix, modelViewMatrix, Date.now() * 0.002);
+            }
+            else if(randAnimNumber == 1){
+            }*/
+            
+            //mat4.rotateX(modelViewMatrix, modelViewMatrix, Date.now() * 0.001);
+
+            // Set the model-view matrix uniform
+            const modelViewMatrixLocation = gl.getUniformLocation(program, 'u_modelViewMatrix');
+            gl.uniformMatrix4fv(modelViewMatrixLocation, false, modelViewMatrix);
+
+            gl.uniform3fv(lightDirectionLocation, lightDirection);
+            gl.uniform3fv(ambientColorLocation, ambientColor);
+            gl.uniform3fv(diffuseColorLocation, diffuseColor);
+            gl.uniform3fv(specularColorLocation, specularColor);
+            gl.uniform1f(shininessLocation, shininess);
+            // Render all spheres
+            for (const sphere of spheres) {
+
+                
+                //console.log(sphere.rotationxx +" "+ sphere.rotationyy);
+                // Apply translation
+                if(randAnimNumber == 0){
+                    rotationxx += sphere.rotationX * speed;
+                rotationyy += sphere.rotationY * speed;
+                      mat4.rotateX(modelViewMatrix, modelViewMatrix, rotationxx);
+                    mat4.rotateY(modelViewMatrix, modelViewMatrix,rotationyy);
+                }
+                if(randAnimNumber == 1){
+
+                 
+                        mat4.rotateZ(modelViewMatrix, modelViewMatrix,rotationyy);
+                }
+                    let i = 0;
+                    for(i = 0; i < sphere.translation.length;i++){
+
+                        if(spheresDup[j].translation[i] == 0.5){
+                            if(sphere.translation[i] <= -0.5){
+                                trans = -  0.01;
+                            }
+                            else if(sphere.translation[i] >= 0.5){
+                                trans = 0.01;
+                            }
+                            sphere.translation[i] = sphere.translation[i] -trans;
+                        }
+                        else if(spheresDup[j].translation[i] == -0.5){
+                            if(sphere.translation[i] >= 0.5){
+                                trans = -0.01;
+                            }
+                            else if(sphere.translation[i] <= -0.5){
+                                trans = 0.01;
+                            }
+                            sphere.translation[i] = sphere.translation[i] + trans;
+                        }
+                        else if(spheresDup[j].translation[i] == 0.35){
+                            if(sphere.translation[i] < -0.35){
+                                trans2 = -0.007;
+                            }
+                            else if(sphere.translation[i] >= 0.35){
+                                trans2 = 0.007;
+                            }
+                            sphere.translation[i] = sphere.translation[i] - trans2;
+                        }
+                        else if(spheresDup[j].translation[i] == -0.35){
+                            if(sphere.translation[i] >= 0.35){
+                                trans2 = -0.007;
+                            }
+                            else if(sphere.translation[i] < -0.35){
+                                trans2 = 0.007;
+                            }
+                            sphere.translation[i] = sphere.translation[i] + trans2;
+                        }
+
+                    }
+                
+                mat4.translate(modelViewMatrix, modelViewMatrix, sphere.translation);
+                
+                
+                // Set the model-view matrix uniform
+                gl.uniformMatrix4fv(modelViewMatrixLocation, false, modelViewMatrix);
+                 
+                // Draw the sphere
+                gl.drawArrays(gl.TRIANGLE_FAN, 0, sphereGeometry.positions.length / 3);
+
+                // Reset translation for the next sphere
+                mat4.translate(modelViewMatrix, modelViewMatrix, [-sphere.translation[0], -sphere.translation[1], -sphere.translation[2]]);
+                j++;
+            }
+
+
+            // Request the next frame
+            requestAnimationFrame(render);
+        }
+
+        //zoom listener
+         zoomSlider.addEventListener('input', function() {
+            let zoomLevel = parseFloat(zoomSlider.value);
+            mat4.perspective(projectionMatrix, Math.PI / (4 * zoomLevel), canvas.width / canvas.height, 0.1, 100.0);
+            gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+        });
+
+        // Start rendering
+        render();
+    </script>
+</body>
+</html>
