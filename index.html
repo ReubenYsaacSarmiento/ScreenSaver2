@@ -4,13 +4,19 @@
     <meta charset="utf-8">
     <title>ScreenSaver</title>
     <style>
-        body { margin: 0; }
-        canvas { display: block; }
+        #canvas {
+            display: block;
+            margin: 0 auto;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+        }
     </style>
 </head>
-<body>
-    <canvas id="canvas" width="1920" height="1080"></canvas>
-    <div id="controls">
+<div id="controls">
         <label for="speed-slider">Speed:</label>
         <input type="range" id="speed-slider" min="1" max="4" step="1" value="1">
         <br>
@@ -24,7 +30,9 @@
         <input type="range" id="shiny-slider" min="0.1" max="15" value="5" step="0.1">
         <br>
     </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+    <canvas id="canvas" width="1920" height="1080"></canvas>
+    
+    <script src="https://cdn.jsdelivr.net/npm/gl-matrix@2.8.1/dist/gl-matrix-min.js"></script>
     <script>
         const canvas = document.getElementById('canvas');
         const gl = canvas.getContext('webgl');
@@ -164,7 +172,7 @@
         ];
 
         // Initialize WebGL
-        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clearColor(0.1, 0.1, 0.1, 1);
         gl.enable(gl.DEPTH_TEST);
         
         // Create shader program
